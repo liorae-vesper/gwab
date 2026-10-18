@@ -1,30 +1,25 @@
-//! Library crate of the template.
+//! `gwab` is a modern HTTP client for the command line.
 //!
-//! This code is intentionally trivial. It exists so that the tooling in this
-//! repository — `rustfmt`, Clippy, Nextest, cargo-deny, cargo-machete, bacon and
-//! the CI workflow — has something real to check. Replace it with your own.
+//! A command line is parsed into a request, and from then on the request is
+//! what the crate works with. [`cli`] is the only module that looks at `argv`:
+//! it produces the types in `ir`, and the later stages of the pipeline consume
+//! them.
+//!
+//! Only the first two stages exist so far. Running the binary parses the
+//! command, prints it and exits — no request is sent yet. `config`, `engine`,
+//! `render`, `state` and `trace` are declared but still empty.
+//!
+//! # Error handling
+//!
+//! `unsafe` code is forbidden and `unwrap`, `expect` and `panic!` are denied,
+//! so a failure is reported as a value instead of by aborting the process.
+//! Fallible functions return `Result<_, String>`, where the message is meant
+//! to be shown to the user as it is.
 
-/// The greeting the binary prints.
-///
-/// Kept public so the integration test in `tests/smoke.rs` exercises the crate
-/// the same way a downstream user would.
-///
-/// # Examples
-///
-/// ```
-/// assert_eq!(crwst::greeting(), "Hello from crwst!");
-/// ```
-#[must_use]
-pub fn greeting() -> &'static str {
-    "Hello from crwst!"
-}
-
-#[cfg(test)]
-mod tests {
-    use super::greeting;
-
-    #[test]
-    fn greeting_mentions_the_crate() {
-        assert!(greeting().contains("crwst"));
-    }
-}
+pub mod cli;
+mod config;
+mod engine;
+mod render;
+mod state;
+mod trace;
+mod ir;
