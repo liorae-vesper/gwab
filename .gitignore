@@ -1,0 +1,13 @@
+# Cargo's build directory. mr-boxington (mbx) turns this into a symlink into its
+# shared store, and git treats that symlink as a file, so the pattern has no
+# trailing slash on purpose: `/target/` would not match the symlink.
+/target
+
+# Per-developer overrides, never committed.
+/mise.local.toml
+/mise.local.lock
+/hk.local.pkl
+
+# OS and editor noise.
+.DS_Store
+*.swp

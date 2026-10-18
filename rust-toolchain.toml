@@ -1,0 +1,10 @@
+# The Rust toolchain, for everyone who does not use mise.
+#
+# mise pins the same version in mise.toml (`[tools] rust`) and adds these
+# components during install. Keep the two files in sync: bump both together.
+# See "Updating pinned tool versions" in README.md.
+[toolchain]
+channel = "1.99.0"
+# "minimal" omits clippy and rustfmt, so they must be requested explicitly.
+profile = "minimal"
+components = ["clippy", "rustfmt"]

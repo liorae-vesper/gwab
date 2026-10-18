@@ -1,0 +1,119 @@
+# mise: tool versions and the task runner for this repository.
+# Docs: https://mise.jdx.dev  ·  Tasks: https://mise.jdx.dev/tasks
+#
+# Every tool is pinned deliberately. `mise.lock` records the resolved versions,
+# URLs and checksums; run `mise lock` after changing anything under [tools].
+# See "Updating pinned tool versions" in README.md.
+
+[settings]
+# Write mise.lock on `mise lock`, and fail installs that the lockfile does not
+# cover. Together these make `mise install` reproducible for a new contributor
+# and for CI.
+lockfile = true
+locked = true
+
+[tools]
+# Rust, with mr-boxington's shared compiler cache switched on. `mr_boxington =
+# true` makes mise run `cargo` through `mbx` inside `mise run` tasks and `mise
+# exec` (requires mise >= 2026.9.2). The separate `mr-boxington` entry below is
+# the program that option drives: both entries are required.
+rust = { version = "1.99.0", profile = "minimal", components = [
+  "clippy",
+  "rustfmt",
+], mr_boxington = true }
+mr-boxington = "1.23.0"
+
+# Git hooks and Conventional Commits validation.
+hk = "2.5.0"
+cocogitto = "7.0.0"
+
+# Cargo subcommands. `locked = true` makes mise pass `--locked` while installing
+# them, so the pinned version is the one that actually gets built.
+"cargo:cargo-deny" = { version = "0.20.2", locked = true }
+"cargo:cargo-audit" = { version = "0.22.2", locked = true }
+"cargo:cargo-nextest" = { version = "0.9.148", locked = true }
+"cargo:cargo-machete" = { version = "0.9.2", locked = true }
+"cargo:bacon" = { version = "3.26.0", locked = true }
+
+# ---------------------------------------------------------------------------
+# Tasks
+#
+# `mise run <task>` is the only interface a developer or CI needs. Cargo
+# invocations live here and nowhere else, so local runs and CI cannot drift.
+#
+# Tasks fail when their commands fail, and `depends` makes a prerequisite run at
+# most once even when several tasks share it. That is why `check` and `ci` can
+# reuse the same gates without doing the work twice.
+# ---------------------------------------------------------------------------
+
+[tasks.setup]
+description = "Validate the hk configuration and install the Git hooks"
+# `--mise` makes the installed hooks run through `mise x`, so they work in a
+# shell where mise is not activated as long as mise is on PATH. On Git 2.54+
+# hk writes this into .git/config as a config-based hook instead of a script.
+run = ["hk validate", "hk install --mise"]
+
+[tasks.fmt]
+description = "Format Rust code in place"
+run = "cargo fmt --all"
+
+[tasks.fmt-check]
+description = "Check formatting without modifying files"
+run = "cargo fmt --all -- --check"
+
+[tasks.clippy]
+description = "Lint the workspace, all targets and features, warnings as errors"
+run = "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings"
+
+[tasks.test]
+description = "Run the test suite with Nextest, then the doctests Cargo owns"
+# Nextest does not run doctests, so they are a separate step; without it
+# `mise run test` would silently cover less than `cargo test`.
+run = [
+  "cargo nextest run --locked --workspace --all-features",
+  "cargo test --locked --workspace --all-features --doc",
+]
+
+[tasks.unused]
+description = "Detect unused dependencies"
+run = "cargo machete --with-metadata"
+
+[tasks.commits]
+description = "Check every commit message against Conventional Commits"
+# A whole-history pass. The hk `commit-msg` hook only ever sees one message, so
+# this is the check CI runs, where a bypassed hook cannot hide.
+run = "cog check"
+
+[tasks.deny]
+description = "Check dependency policy: wildcards, duplicates, licenses, sources"
+# Advisories are deliberately NOT checked here: cargo-audit owns them. Keeping
+# the two apart means an advisory never hides behind a license failure.
+#
+# The lint levels live in deny.toml rather than in this command line, so the
+# policy is readable in one place. There is no `--deny warnings` here for the
+# same reason: `cargo deny check --deny warnings` would override the per-lint
+# levels deny.toml sets deliberately.
+run = "cargo deny --locked check bans licenses sources"
+
+[tasks.advisories]
+description = "Check dependencies against the RustSec advisory database"
+run = "cargo audit"
+
+[tasks.audit]
+description = "Run every dependency security and policy check"
+depends = ["deny", "advisories"]
+
+[tasks.check]
+description = "Run the fast local quality gates used by the Git hooks"
+depends = ["fmt-check", "clippy", "test", "unused"]
+
+[tasks.ci]
+description = "Run every validation CI requires"
+depends = ["check", "audit"]
+
+[tasks.bacon]
+description = "Watch the workspace with bacon for continuous feedback"
+# bacon owns the terminal: it is a TUI, so it takes stdin/stdout directly and
+# holds an exclusive lock for its whole run.
+interactive = true
+run = "bacon"

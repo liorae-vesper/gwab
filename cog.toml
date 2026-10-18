@@ -1,0 +1,22 @@
+#:schema https://docs.cocogitto.io/cog-schema.json
+# cocogitto: Conventional Commits validation. Docs: https://docs.cocogitto.io
+#
+# cog is this template's commit-message validator, and nothing else. Code style
+# belongs to rustfmt and Clippy; release and changelog tooling is deliberately
+# out of scope here.
+#
+# The same rule is enforced in two places:
+#   * `cog verify --file <msg>` checks a single message. The hk `commit-msg` hook
+#     runs it, so a malformed message never becomes a commit.
+#   * `cog check` (the `mise run commits` task, run by CI) checks a whole history,
+#     because `HK=0` can skip the hook.
+#
+# This file exists so that `cog check` behaves like the hook without flags being
+# repeated on every command line.
+
+# Merge commits are how most contributors integrate work, so a message such as
+# "Merge pull request #1" must not be treated as a malformed commit.
+ignore_merge_commits = true
+# Same for fixup!/squash!/amend! messages, so `git rebase --autosquash` keeps
+# working between the commit and the rebase that consumes it.
+ignore_fixup_commits = true

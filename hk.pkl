@@ -1,0 +1,65 @@
+// hk: Git hooks. Docs: https://hk.jdx.dev
+//
+// This file uses hk 2.x conventions. hk 2 dropped the v1 configuration formats —
+// `hk.toml`/`hk.yaml`/`hk.json`, `.hkrc.pkl`, `UserConfig.pkl` and `hk generate`
+// are not read, and each removed input produces a targeted error. See the v1 to
+// v2 migration notes: https://github.com/jdx/hk/discussions/1261
+//
+// Design notes:
+//  * Every step calls a `mise run` task and never cargo directly. The task is
+//    the single definition of a gate, so a hook cannot disagree with CI.
+//  * Only fast, local, offline checks run in hooks. `mise run audit` fetches the
+//    RustSec advisory database from the network, so it belongs to CI and to
+//    explicit runs, not to the commit path.
+//  * There is no `pre-push` hook on purpose: it would re-run exactly what
+//    `pre-commit` already ran. The expensive checks it might have hosted are in
+//    CI instead.
+amends "package://github.com/jdx/hk/releases/download/v2.5.0/hk@2.5.0#/Config.pkl"
+
+// Fail with the version that introduced the v2 schema this file relies on.
+min_hk_version = "2.5.0"
+default_branch = "main"
+// Stop at the first failing step: hook feedback should name one problem, not
+// every downstream symptom of it.
+fail_fast = true
+
+hooks {
+  // Verifies the commit message itself. Git runs `commit-msg` after
+  // `pre-commit`, and `{{commit_msg_file}}` is the only place the final message
+  // is available — so this is where Conventional Commits are enforced, with
+  // cocogitto, rather than duplicating the rule in a second tool.
+  ["commit-msg"] {
+    fix = false
+    steps {
+      ["conventional-commit"] {
+        // Merge and fixup/squash messages are left to git's own tooling;
+        // `git rebase --autosquash` would otherwise be blocked.
+        check = "cog verify --file '{{commit_msg_file}}' --ignore-merge-commits --ignore-fixup-commits"
+      }
+    }
+  }
+
+  ["pre-commit"] {
+    // Read-only on purpose: no fix, and `stash = "none"` so unstaged work is
+    // left where the author put it. A hook must never rewrite files or touch
+    // the index behind your back. Reformat with `mise run fmt` instead.
+    fix = false
+    stash = "none"
+    steps {
+      ["quality"] {
+        check = "mise run check"
+      }
+    }
+  }
+
+  // The same gates on demand: `hk check` over modified files, `hk check --all`
+  // over the whole tree. Without a `check` hook, `hk check` has nothing to run.
+  ["check"] {
+    fix = false
+    steps {
+      ["quality"] {
+        check = "mise run check"
+      }
+    }
+  }
+}

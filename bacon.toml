@@ -1,0 +1,31 @@
+#:schema https://dystroy.org/bacon/.bacon.schema.json
+# bacon: continuous feedback while editing. Docs: https://dystroy.org/bacon
+#
+# bacon is a convenience layer, not a gate — it runs Cargo directly in a watch
+# loop and nothing in CI depends on it. The clippy and test jobs use the same
+# flags as the `clippy` and `test` tasks in mise.toml, so the feedback you watch
+# while editing matches what `mise run check` and CI enforce.
+
+default_job = "check"
+env.CARGO_TERM_COLOR = "always"
+
+# Default job: does it compile? This is the tightest loop, so it is the default.
+[jobs.check]
+command = ["cargo", "check", "--workspace", "--all-targets"]
+need_stdout = false
+
+# Same flags as `mise run clippy`.
+[jobs.clippy]
+command = ["cargo", "clippy", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]
+need_stdout = false
+
+# Same command as `mise run test`, minus the doctest pass that Cargo owns.
+# `analyzer = "nextest"` makes bacon understand Nextest's output.
+[jobs.test]
+command = ["cargo", "nextest", "run", "--workspace", "--all-features", "--hide-progress-bar", "--failure-output", "final"]
+need_stdout = true
+analyzer = "nextest"
+
+[jobs.doc]
+command = ["cargo", "doc", "--no-deps"]
+need_stdout = false

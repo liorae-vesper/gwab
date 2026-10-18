@@ -1,0 +1,33 @@
+[package]
+name = "crwst"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+description = "A batteries-included Rust project template"
+# Nothing in the template should ever be published by accident.
+publish = false
+
+# Present so the root package is already a workspace: adding `members = ["crates/*"]`
+# later needs no restructuring, and `--workspace` in the mise tasks is meaningful
+# from day one.
+[workspace]
+resolver = "3"
+
+# A deliberately small lint set. It is shared by `cargo clippy` locally, by bacon,
+# and by CI, so there is one definition of "lint clean". Relax entries here rather
+# than passing different flags in different places.
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# A failure must be returned as an error, not crash the process.
+# `clippy.toml` exempts test code, where panicking is how a test reports failure.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+# The other macros that abort instead of returning.
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"

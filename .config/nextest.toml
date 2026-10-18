@@ -1,0 +1,15 @@
+# cargo-nextest configuration. Docs: https://nexte.st/docs/configuration/
+#
+# cargo-nextest reads this file from `.config/nextest.toml` in the workspace
+# root. The `default` profile is what `mise run test` uses. The `ci` profile
+# exists because `fail-fast = true` is right for a developer watching one
+# failure, but wrong for CI, which should report everything that is broken in a
+# single run. Profiles inherit from `default`, so nothing is repeated.
+
+[profile.default]
+# Stop at the first failure locally: that is the one to fix.
+fail-fast = true
+
+[profile.ci]
+# Run the whole suite, then report every failure.
+fail-fast = false

@@ -1,0 +1,14 @@
+# clippy.toml configures the lints; their levels live in Cargo.toml under
+# [lints.clippy]. Docs: https://doc.rust-lang.org/clippy/lint_configuration.html
+#
+# This crate denies `unwrap`, `expect` and `panic!`, so a failure has to be
+# returned as an error instead of aborting the process. Tests are the exception:
+# there, panicking *is* the assertion mechanism, and an `unwrap` that fails
+# should fail the test.
+#
+# These three options are what implement that exemption, which is why no test
+# file needs its own `#[allow(clippy::unwrap_used, ...)]` attribute — including
+# integration tests under tests/, which are separate crates.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

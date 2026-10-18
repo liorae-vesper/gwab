@@ -1,0 +1,104 @@
+# CI: GitHub Actions.
+#
+# Every step runs a `mise run` task, never a cargo command. The task is the one
+# definition of a gate, so CI cannot drift from what `mise run check` does on a
+# developer's machine — and hooks, CI and the task list all agree by
+# construction.
+#
+# Three jobs, split by concern rather than by command, so a failure names the
+# concern:
+#
+#   quality  mise run check     formatting, clippy, tests, unused dependencies
+#   audit    mise run deny      dependency policy: wildcards, duplicates,
+#            mise run advisories   licences, sources — then RustSec advisories
+#   commits  mise run commits   every commit message is a Conventional Commit
+#
+# `quality` runs the whole `check` task as one step on purpose: listing its
+# commands separately here would let the workflow and the task drift apart. The
+# audit job splits its two tasks into separate steps because "an advisory was
+# published" and "a licence is not allowed" need different responses.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same ref cancels the run it supersedes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    env:
+      # `mise run check` runs the `test` task, whose nextest invocation picks up
+      # this variable. The `ci` profile in .config/nextest.toml does not stop at
+      # the first failure, so one run reports every broken test.
+      NEXTEST_PROFILE: ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Installs every tool pinned in mise.toml, resolving it through the
+      # committed mise.lock (the action runs `mise install --locked` when a
+      # lockfile is present) and caching the installed tools.
+      - name: Install the pinned toolchain
+        uses: jdx/mise-action@v5
+
+      # Must come after the toolchain: this action installs mbx and wires the
+      # Cargo target tree and registry into the GitHub Actions cache. Only a push
+      # to the default branch saves an entry, so pull requests restore only.
+      # `version` is pinned to the same mbx release as mise.toml so one mbx
+      # version reads and writes the cache. Bump both together.
+      - name: Restore the build cache
+        uses: jdx/mr-boxington-action@v1
+        with:
+          version: "1.23.0"
+
+      - name: Run the local quality gates
+        run: mise run check
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install the pinned toolchain
+        uses: jdx/mise-action@v5
+
+      # No mr-boxington step here: these checks read Cargo.lock and the registry,
+      # and never compile the project, so there is no build cache to restore.
+      - name: Check dependency policy, licences and sources
+        run: mise run deny
+
+      - name: Check RustSec advisories
+        # Fetches the advisory database from GitHub on each run.
+        run: mise run advisories
+
+  commits:
+    name: Conventional commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # `cog check` walks the commit history, and a shallow clone would hide
+          # all but the newest commit.
+          fetch-depth: 0
+
+      - name: Install the pinned toolchain
+        uses: jdx/mise-action@v5
+
+      - name: Check every commit message
+        # The hk `commit-msg` hook checks one message and can be bypassed with
+        # `HK=0`; this checks the whole history and cannot.
+        run: mise run commits
