@@ -13,14 +13,12 @@ use gwab::cli::Cli;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
- let the_cli: Cli = Cli::parse();
- match the_cli.dispatch() {
-  Ok(..) => {
-   ExitCode::SUCCESS
-  },
-  Err(..) => {
-   ExitCode::FAILURE
-  }
- }
+    let the_cli: Cli = Cli::parse();
+    match the_cli.dispatch() {
+        Ok(..) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("gwab: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
-

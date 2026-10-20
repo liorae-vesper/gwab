@@ -9,8 +9,8 @@
 //! a field's first line is that option's help text; the paragraphs after a
 //! blank line become the longer help shown by `--help`.
 
-use std::env::args;
-use crate::ir;
+use crate::ir::HttpMethod;
+use crate::{engine, ir, state};
 use clap::{Args, Parser, Subcommand};
 
 /// The `gwab` command line.
@@ -36,29 +36,28 @@ impl Cli {
     pub fn dispatch(self) -> Result<(), String> {
         match self.command {
             Command::Get(args) => {
-              println!("GET {}", args.url);
-            },
+                let request = args.to_request(HttpMethod::Get);
+                engine::run(request?)?;
+            }
             Command::Post(args) => {
-              println!("POST {}", args.url);
-            },
+                let request = args.to_request(HttpMethod::Post);
+                engine::run(request?)?;
+            }
             Command::Put(args) => {
-              println!("PUT {}", args.url);
-            },
+                let request = args.to_request(HttpMethod::Put);
+                engine::run(request?)?;
+            }
             Command::Patch(args) => {
-              println!("PATCH {}", args.url);
-            },
+                let request = args.to_request(HttpMethod::Patch);
+                engine::run(request?)?;
+            }
             Command::Delete(args) => {
-              println!("DELETE {}", args.url);
-            },
-            Command::Set { key, value } => {
-              println!("Set {}={}", key, value);
-            },
-            Command::Unset { key } => {
-              println!("Unset {}", key);
-            },
-            Command::Vars => {
-              println!("List of variables");
-            },
+                let request = args.to_request(HttpMethod::Delete);
+                engine::run(request?)?;
+            }
+            Command::Set { key, value } => state::RuntimeState::set(key, value)?,
+            Command::Unset { key } => state::RuntimeState::unset(key)?,
+            Command::Vars => state::RuntimeState::vars()?,
         };
         Ok(())
     }
@@ -105,7 +104,7 @@ pub enum Command {
 /// Every flag that may be given more than once is collected in a `Vec`, so the
 /// order the user wrote them in is preserved. The URL and body are kept as
 /// typed; the header and variable strings are still raw at this point.
-/// [`RequestArgs::new`] is what parses them.
+/// [`RequestArgs::to_request`] is what parses them.
 #[derive(Debug, Args)]
 pub struct RequestArgs {
     /// The URL to send the request to.
@@ -119,6 +118,12 @@ pub struct RequestArgs {
     /// Assign a variable, written as `NAME=VALUE`. May be repeated.
     #[arg(long = "var", value_name = "NAME=VALUE")]
     vars: Vec<String>,
+    /// Load variables from a named environment in the configuration files.
+    #[arg(long = "env", value_name = "NAME")]
+    environment: Option<String>,
+    /// Print headers, bodies, DNS time, and latency; may expose credentials.
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 impl RequestArgs {
@@ -128,8 +133,7 @@ impl RequestArgs {
     ///
     /// * `method` - HTTP method the request will be sent with. It is passed
     ///   separately because the option list itself does not name a method.
-    /// * `args` - Arguments as parsed from the command line; the URL and body
-    ///   are moved out of it unchanged.
+    /// The URL and body are moved out unchanged.
     ///
     /// # Errors
     ///
@@ -137,13 +141,13 @@ impl RequestArgs {
     /// with a message that describes what was wrong. The rules themselves live
     /// in `Header::parse` and `VariableAssigment::parse`, next to the data
     /// they protect.
-    pub fn new(method: ir::HttpMethod, args: RequestArgs) -> Result<ir::HttpRequest, String> {
-        let headers = args
+    fn to_request(self, method: ir::HttpMethod) -> Result<ir::HttpRequest, String> {
+        let headers = self
             .headers
             .iter()
             .map(|header| ir::Header::parse(header))
             .collect::<Result<Vec<_>, _>>()?;
-        let vars = args
+        let vars = self
             .vars
             .iter()
             .map(|var| ir::VariableAssigment::parse(var))
@@ -152,9 +156,48 @@ impl RequestArgs {
             method,
             headers,
             vars,
-            body: args.body,
-            url: args.url,
+            body: self.body,
+            url: self.url,
+            verbose: self.verbose,
+            environment: self.environment,
         };
         Ok(request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Command};
+    use crate::ir::HttpMethod;
+    use clap::Parser;
+
+    #[test]
+    fn request_accepts_verbose_flag() {
+        let cli = Cli::try_parse_from(["gwab", "get", "https://example.com", "--verbose"])
+            .expect("verbose request arguments should parse");
+
+        if let Command::Get(args) = cli.command {
+            let request = args
+                .to_request(HttpMethod::Get)
+                .expect("valid request arguments should form a request");
+            assert!(request.verbose);
+        } else {
+            assert!(false, "expected a GET request");
+        }
+    }
+
+    #[test]
+    fn request_accepts_environment_flag() {
+        let cli = Cli::try_parse_from(["gwab", "get", "/posts", "--env", "staging"])
+            .expect("environment request arguments should parse");
+
+        if let Command::Get(args) = cli.command {
+            let request = args
+                .to_request(HttpMethod::Get)
+                .expect("valid request arguments should form a request");
+            assert_eq!(request.environment.as_deref(), Some("staging"));
+        } else {
+            assert!(false, "expected a GET request");
+        }
     }
 }
