@@ -14,10 +14,10 @@
 pub(super) struct Header {
     /// Header name. Guaranteed to be a valid token, so it can be written to a
     /// request line or a header line without escaping.
-    name: String,
+    pub(crate) name: String,
     /// Header value. Guaranteed to be free of CR and LF, so it cannot end the
     /// header early and inject another one.
-    value: String,
+    pub(crate) value: String,
 }
 
 impl Header {
@@ -75,10 +75,10 @@ impl Header {
 pub(super) struct VariableAssigment {
     /// Variable name. Guaranteed to be non-empty, so it can always be looked
     /// up again.
-    name: String,
+    pub(crate) name: String,
     /// Value assigned to the name. May be empty, because `NAME=` is a valid
     /// way to clear a value.
-    value: String,
+    pub(crate) value: String,
 }
 
 impl VariableAssigment {
@@ -94,9 +94,7 @@ impl VariableAssigment {
     pub fn parse(input: &str) -> Result<VariableAssigment, String> {
         let (name, value) = input
             .split_once('=')
-            .ok_or_else(|| format!(
-                "invalid variable {input:?}: expected NAME=VALUE"
-            ))?;
+            .ok_or_else(|| format!("invalid variable {input:?}: expected NAME=VALUE"))?;
 
         if name.is_empty() {
             return Err("variable name cannot be empty".into());
@@ -127,12 +125,24 @@ pub(super) enum HttpMethod {
     Delete,
 }
 
+/// Selects which response data is written to stdout.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) enum ResponseOutput {
+    /// Preserve the usual status line and text response body.
+    #[default]
+    Default,
+    /// Write only the response body bytes, without adding a newline.
+    Body,
+    /// Write a status line, response headers, and the raw response body.
+    All,
+}
+
 /// A complete request, ready to be executed.
 ///
 /// This is the seam between parsing and the network: the CLI fills it in and
 /// the engine consumes it, so neither has to know how the other works.
 #[derive(Debug)]
-pub (super) struct HttpRequest {
+pub(super) struct HttpRequest {
     /// Method to send the request with.
     pub(crate) method: HttpMethod,
     /// URL to send the request to, exactly as given on the command line. It is
@@ -149,4 +159,26 @@ pub (super) struct HttpRequest {
     /// Variable assignments given on the command line, in the order they were
     /// given.
     pub(crate) vars: Vec<VariableAssigment>,
+    /// Whether to print request diagnostics and timing metrics.
+    pub(crate) verbose: bool,
+    /// Whether to suppress all request output and return an error for non-2xx statuses.
+    pub(crate) quiet: bool,
+    /// Named configuration environment selected for this request.
+    pub(crate) environment: Option<String>,
+    /// How much of the response to write to stdout.
+    pub(crate) output: ResponseOutput,
+}
+
+/// A request with configuration, variables, and body input already resolved.
+///
+/// The transport layer receives this shape so it does not need to inspect
+/// workspace state or prompt the user.
+pub(crate) struct PreparedRequest {
+    pub(crate) method: HttpMethod,
+    pub(crate) url: String,
+    pub(crate) headers: Vec<Header>,
+    pub(crate) body: Option<String>,
+    pub(crate) verbose: bool,
+    pub(crate) quiet: bool,
+    pub(crate) output: ResponseOutput,
 }

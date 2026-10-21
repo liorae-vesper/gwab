@@ -1,17 +1,14 @@
 //! Command line surface of `gwab`.
 //!
-//! This module owns argument parsing and nothing else: it turns the command
-//! line into the request description defined by the `ir` module, so the rest
-//! of the crate never has to look at raw arguments.
+//! This module owns the command-line schema and parsing. Parsed commands are
+//! handed to [`crate::dispatcher`] for execution.
 //!
 //! Most doc comments here do double duty. `clap` derives the `--help` output
 //! from them, so a variant's first line is what "gwab --help" prints for it and
 //! a field's first line is that option's help text; the paragraphs after a
 //! blank line become the longer help shown by `--help`.
 
-use std::env::args;
-use crate::ir;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// The `gwab` command line.
 ///
@@ -23,45 +20,6 @@ pub struct Cli {
     /// The subcommand to run, together with its arguments.
     #[command(subcommand)]
     pub command: Command,
-}
-
-impl Cli {
-    /// Runs the command the user asked for.
-    ///
-    /// # Errors
-    ///
-    /// Returns the message of whichever step failed, written to be shown to
-    /// the user unchanged. Deciding what to do with it is the caller's job:
-    /// `main` currently only turns it into a non-zero exit code.
-    pub fn dispatch(self) -> Result<(), String> {
-        match self.command {
-            Command::Get(args) => {
-              println!("GET {}", args.url);
-            },
-            Command::Post(args) => {
-              println!("POST {}", args.url);
-            },
-            Command::Put(args) => {
-              println!("PUT {}", args.url);
-            },
-            Command::Patch(args) => {
-              println!("PATCH {}", args.url);
-            },
-            Command::Delete(args) => {
-              println!("DELETE {}", args.url);
-            },
-            Command::Set { key, value } => {
-              println!("Set {}={}", key, value);
-            },
-            Command::Unset { key } => {
-              println!("Unset {}", key);
-            },
-            Command::Vars => {
-              println!("List of variables");
-            },
-        };
-        Ok(())
-    }
 }
 
 /// The command to run.
@@ -81,6 +39,14 @@ pub enum Command {
     Patch(RequestArgs),
     /// Send a DELETE request.
     Delete(RequestArgs),
+
+    /// Replay a saved request from `gwab-requests.toml` in the current directory.
+    Run {
+        /// Method under which the request was saved; omit with NAME to browse.
+        method: Option<SavedMethod>,
+        /// Name passed to `--save`; omit with METHOD to browse.
+        name: Option<String>,
+    },
 
     /// Remember a variable value under a name.
     Set {
@@ -105,56 +71,157 @@ pub enum Command {
 /// Every flag that may be given more than once is collected in a `Vec`, so the
 /// order the user wrote them in is preserved. The URL and body are kept as
 /// typed; the header and variable strings are still raw at this point.
-/// [`RequestArgs::new`] is what parses them.
 #[derive(Debug, Args)]
 pub struct RequestArgs {
     /// The URL to send the request to.
-    url: String,
+    pub(crate) url: String,
     /// Add a header, written as `NAME: VALUE`. May be repeated.
     #[arg(long = "add-header", value_name = "NAME: VALUE")]
-    headers: Vec<String>,
+    pub(crate) headers: Vec<String>,
     /// Send this body with the request.
     #[arg(long, short = 'd')]
-    body: Option<String>,
+    pub(crate) body: Option<String>,
     /// Assign a variable, written as `NAME=VALUE`. May be repeated.
     #[arg(long = "var", value_name = "NAME=VALUE")]
-    vars: Vec<String>,
+    pub(crate) vars: Vec<String>,
+    /// Load variables from a named environment in the configuration files.
+    #[arg(long = "env", value_name = "NAME")]
+    pub(crate) environment: Option<String>,
+    /// Print headers, bodies, DNS time, and latency; may expose credentials.
+    #[arg(short, long)]
+    pub(crate) verbose: bool,
+    /// Suppress all output and use the exit code to report request success.
+    #[arg(short, long)]
+    pub(crate) quiet: bool,
+    /// Select response output: body for piping, all for a status line, headers, and body.
+    #[arg(long, value_enum, value_name = "MODE")]
+    pub(crate) output: Option<OutputMode>,
+    /// Save this request under a name in `gwab-requests.toml` in the current directory.
+    #[arg(short = 's', long, value_name = "NAME")]
+    pub(crate) save: Option<String>,
+    /// Describe this saved request in the picker (requires `--save`).
+    #[arg(long, value_name = "TEXT")]
+    pub(crate) description: Option<String>,
 }
 
-impl RequestArgs {
-    /// Builds the request described by these arguments.
-    ///
-    /// # Arguments
-    ///
-    /// * `method` - HTTP method the request will be sent with. It is passed
-    ///   separately because the option list itself does not name a method.
-    /// * `args` - Arguments as parsed from the command line; the URL and body
-    ///   are moved out of it unchanged.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a `--add-header` or `--var` value is malformed,
-    /// with a message that describes what was wrong. The rules themselves live
-    /// in `Header::parse` and `VariableAssigment::parse`, next to the data
-    /// they protect.
-    pub fn new(method: ir::HttpMethod, args: RequestArgs) -> Result<ir::HttpRequest, String> {
-        let headers = args
-            .headers
-            .iter()
-            .map(|header| ir::Header::parse(header))
-            .collect::<Result<Vec<_>, _>>()?;
-        let vars = args
-            .vars
-            .iter()
-            .map(|var| ir::VariableAssigment::parse(var))
-            .collect::<Result<Vec<_>, _>>()?;
-        let request = ir::HttpRequest {
-            method,
-            headers,
-            vars,
-            body: args.body,
-            url: args.url,
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub(crate) enum OutputMode {
+    Body,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+/// HTTP method under which a named request is saved.
+pub enum SavedMethod {
+    /// GET request.
+    Get,
+    /// POST request.
+    Post,
+    /// PUT request.
+    Put,
+    /// PATCH request.
+    Patch,
+    /// DELETE request.
+    Delete,
+}
+
+impl SavedMethod {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Get => "get",
+            Self::Post => "post",
+            Self::Put => "put",
+            Self::Patch => "patch",
+            Self::Delete => "delete",
+        }
+    }
+
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "get" => Some(Self::Get),
+            "post" => Some(Self::Post),
+            "put" => Some(Self::Put),
+            "patch" => Some(Self::Patch),
+            "delete" => Some(Self::Delete),
+            _ => None,
+        }
+    }
+}
+
+impl From<SavedMethod> for crate::ir::HttpMethod {
+    fn from(method: SavedMethod) -> Self {
+        match method {
+            SavedMethod::Get => Self::Get,
+            SavedMethod::Post => Self::Post,
+            SavedMethod::Put => Self::Put,
+            SavedMethod::Patch => Self::Patch,
+            SavedMethod::Delete => Self::Delete,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn request_accepts_verbose_flag() {
+        let cli = Cli::try_parse_from(["gwab", "get", "https://example.com", "--verbose"])
+            .expect("verbose request arguments should parse");
+
+        assert!(matches!(&cli.command, Command::Get(_)));
+        let Command::Get(args) = cli.command else {
+            return;
         };
-        Ok(request)
+        assert!(args.verbose);
+    }
+
+    #[test]
+    fn request_accepts_environment_flag() {
+        let cli = Cli::try_parse_from(["gwab", "get", "/posts", "--env", "staging"])
+            .expect("environment request arguments should parse");
+
+        assert!(matches!(&cli.command, Command::Get(_)));
+        let Command::Get(args) = cli.command else {
+            return;
+        };
+        assert_eq!(args.environment.as_deref(), Some("staging"));
+    }
+
+    #[test]
+    fn quiet_flag_is_preserved_in_the_request() {
+        let cli = Cli::try_parse_from(["gwab", "get", "/posts", "--quiet"])
+            .expect("quiet request arguments should parse");
+
+        let Command::Get(args) = cli.command else {
+            return;
+        };
+        assert!(args.quiet);
+    }
+
+    #[test]
+    fn save_short_flag_is_preserved_as_a_request_name() {
+        let cli = Cli::try_parse_from(["gwab", "get", "/users", "-s", "users"])
+            .expect("short save flag should parse");
+        let Command::Get(args) = cli.command else {
+            return;
+        };
+
+        assert_eq!(args.save.as_deref(), Some("users"));
+    }
+
+    #[test]
+    fn run_command_accepts_no_key_to_open_the_picker() {
+        let cli = Cli::try_parse_from(["gwab", "run"])
+            .expect("run without a key should open the saved request picker");
+
+        assert!(matches!(
+            cli.command,
+            Command::Run {
+                method: None,
+                name: None
+            }
+        ));
     }
 }
