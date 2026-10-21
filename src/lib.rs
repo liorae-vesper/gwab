@@ -5,10 +5,6 @@
 //! it produces the types in `ir`, and the later stages of the pipeline consume
 //! them.
 //!
-//! Only the first two stages exist so far. Running the binary parses the
-//! command, prints it and exits — no request is sent yet. `config`, `engine`,
-//! `render`, `state` and `trace` are declared but still empty.
-//!
 //! # Error handling
 //!
 //! `unsafe` code is forbidden and `unwrap`, `expect` and `panic!` are denied,
@@ -18,8 +14,12 @@
 
 pub mod cli;
 mod config;
+mod cookies;
+pub mod dispatcher;
 mod engine;
+mod ir;
+mod preparation;
 mod render;
+mod saved_requests;
 mod state;
 mod trace;
-mod ir;

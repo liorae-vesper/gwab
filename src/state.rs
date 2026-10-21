@@ -21,18 +21,7 @@ impl RuntimeState {
     }
 
     fn get_or_init() -> Result<PathBuf, io::Error> {
-        let path = dirs::data_dir().ok_or(io::Error::new(
-            ErrorKind::NotFound,
-            "the data directory could not be found in this OS",
-        ))?;
-        let ided_path = path.join("gwab");
-        fs::create_dir_all(&ided_path)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&ided_path, fs::Permissions::from_mode(0o700))?;
-        }
-        Ok(ided_path)
+        Self::app_data_dir()
     }
 
     fn settings_file(&self) -> PathBuf {
@@ -69,24 +58,39 @@ impl RuntimeState {
         Ok(())
     }
 
-    pub fn set(name: String, value: String) -> Result<(), String> {
+    pub(crate) fn app_data_dir() -> Result<PathBuf, io::Error> {
+        let path = dirs::data_dir().ok_or(io::Error::new(
+            ErrorKind::NotFound,
+            "the data directory could not be found in this OS",
+        ))?;
+        let ided_path = path.join("gwab");
+        fs::create_dir_all(&ided_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&ided_path, fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(ided_path)
+    }
+
+    pub fn set(name: &str, value: &str) -> Result<(), String> {
         let state = Self::new().map_err(|error| format!("could not open gwab state: {error}"))?;
         let mut data = state
             .read_file()
             .map_err(|error| format!("could not read gwab state: {error}"))?;
-        set_scoped_value(&mut data, &state.scope, &name, &value);
+        set_scoped_value(&mut data, &state.scope, name, value);
         state
             .write_file(&data)
             .map_err(|error| format!("could not save gwab state: {error}"))
     }
 
-    pub(crate) fn unset(key: String) -> Result<(), String> {
+    pub(crate) fn unset(key: &str) -> Result<(), String> {
         let state = Self::new().map_err(|error| format!("could not open gwab state: {error}"))?;
         let mut data = state
             .read_file()
             .map_err(|error| format!("could not read gwab state: {error}"))?;
         if let Some(values) = data.get_mut(&state.scope) {
-            values.remove(&key);
+            values.remove(key);
         }
         state
             .write_file(&data)

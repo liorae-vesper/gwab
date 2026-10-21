@@ -125,6 +125,18 @@ pub(super) enum HttpMethod {
     Delete,
 }
 
+/// Selects which response data is written to stdout.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) enum ResponseOutput {
+    /// Preserve the usual status line and text response body.
+    #[default]
+    Default,
+    /// Write only the response body bytes, without adding a newline.
+    Body,
+    /// Write a status line, response headers, and the raw response body.
+    All,
+}
+
 /// A complete request, ready to be executed.
 ///
 /// This is the seam between parsing and the network: the CLI fills it in and
@@ -149,6 +161,24 @@ pub(super) struct HttpRequest {
     pub(crate) vars: Vec<VariableAssigment>,
     /// Whether to print request diagnostics and timing metrics.
     pub(crate) verbose: bool,
+    /// Whether to suppress all request output and return an error for non-2xx statuses.
+    pub(crate) quiet: bool,
     /// Named configuration environment selected for this request.
     pub(crate) environment: Option<String>,
+    /// How much of the response to write to stdout.
+    pub(crate) output: ResponseOutput,
+}
+
+/// A request with configuration, variables, and body input already resolved.
+///
+/// The transport layer receives this shape so it does not need to inspect
+/// workspace state or prompt the user.
+pub(crate) struct PreparedRequest {
+    pub(crate) method: HttpMethod,
+    pub(crate) url: String,
+    pub(crate) headers: Vec<Header>,
+    pub(crate) body: Option<String>,
+    pub(crate) verbose: bool,
+    pub(crate) quiet: bool,
+    pub(crate) output: ResponseOutput,
 }
